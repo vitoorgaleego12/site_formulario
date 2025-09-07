@@ -1,45 +1,41 @@
-from flask import Flask, request
-import sqlite3
+from flask import Flask, request, jsonify
+import psycopg2
 import os
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "banco.db")
+# Pega a URL do banco no Render (configure no painel -> Environment Variables)
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS contatos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT,
-            email TEXT,
-            mensagem TEXT
-        )
-    """)
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
+
+@app.route("/inserir", methods=["POST"])
+def inserir():
+    data = request.get_json()
+    nome = data.get("nome")
+    email = data.get("email")
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO usuarios (nome, email) VALUES (%s, %s)", (nome, email))
     conn.commit()
+    cur.close()
     conn.close()
-    print(f"Banco de dados criado ou verificado em: {DB_PATH}")
 
-@app.route("/")
-def formulario():
-    with open(os.path.join(BASE_DIR, "index.html"), "r", encoding="utf-8") as f:
-        return f.read()
+    return jsonify({"message": "Usuário inserido com sucesso!"})
 
-@app.route("/enviar", methods=["POST"])
-def enviar():
-    nome = request.form["nome"]
-    email = request.form["email"]
-    mensagem = request.form["mensagem"]
-
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO contatos (nome, email, mensagem) VALUES (?, ?, ?)", (nome, email, mensagem))
-    conn.commit()
+@app.route("/listar", methods=["GET"])
+def listar():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, nome, email FROM usuarios")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
-    return f"<h2>Obrigado, {nome}! Sua mensagem foi enviada.</h2>"
+
+    usuarios = [{"id": r[0], "nome": r[1], "email": r[2]} for r in rows]
+    return jsonify(usuarios)
 
 if __name__ == "__main__":
-    init_db()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000)
